@@ -1,0 +1,36 @@
+# ROS2 build and install folders
+build/
+install/
+log/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment
+venv/
+.env/
+.envrc
+
+# Colcon build artifacts
+colcon*.log
+
+# VSCode settings
+.vscode/
+
+# MacOS files
+.DS_Store
+
+# ROS2 launch files logs
+*.launch.py.log
+
+# Test results
+test_results/
+
+# ROS2 workspace overlay
+*.overlay
+
+# ROS2 package index
+ros2_ws/
