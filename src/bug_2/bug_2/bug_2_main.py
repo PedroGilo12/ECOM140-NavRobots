@@ -3,24 +3,34 @@ from rclpy.node import Node
 
 from std_msgs.msg import String
 from nav_msgs.msg import Odometry
+from sensor_msgs.msg import LaserScan
+
+import argparse
 
 class Bug2Subscriber(Node):
 
     def __init__(self):
         super().__init__('Bug2Subscriber')
         self.subscription = self.create_subscription(
-            Odometry,
-            '/odom',
+            LaserScan,
+            '/scan',
             self.listener_callback,
-            10)
-        self.subscription  # prevent unused variable warning
+            10
+        )
+        self.subscription
 
     def listener_callback(self, msg):
-        self.get_logger().info('I heard: "%s"' % msg.pose.pose.position)
+        self.get_logger().info('I heard: "%s"' % msg.range_max)
 
 
 def main(args=None):
-    rclpy.init(args=args)
+    parser = argparse.ArgumentParser(description='Bug2Subscriber Node')
+    parser.add_argument('--threshold', type=float, default=10.0, help='Threshold value')
+    args, unknown = parser.parse_known_args()
+
+    rclpy.init(args=unknown)
+
+    print(args.threshold)
 
     minimal_subscriber = Bug2Subscriber()
 
