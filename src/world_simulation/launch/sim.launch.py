@@ -31,7 +31,12 @@ def generate_launch_description():
         output='screen'
     )
 
+    rviz_exec = ExecuteProcess(
+        cmd=['ros2', 'launch', 'turtlebot3_bringup', 'rviz2.launch.py']
+    )
+
     # 2. Ação para incluir o launch file que spawna o TurtleBot3
+    # Encontra o pacote do turtlebot3_gazebo
     turtlebot3_gazebo_dir = get_package_share_directory('turtlebot3_gazebo')
     spawn_turtlebot_launch_file = os.path.join(turtlebot3_gazebo_dir, 'launch', 'spawn_turtlebot3.launch.py')
 
@@ -70,4 +75,5 @@ def generate_launch_description():
         generate_sdf,
         run_simulation_and_spawn_robot,
         set_env_vars_resources,
+        rviz_exec,
     ])
