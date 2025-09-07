@@ -5,6 +5,7 @@ from launch.substitutions import LaunchConfiguration
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from ament_index_python.packages import get_package_share_directory
 from launch.actions import AppendEnvironmentVariable
+from launch_ros.actions import Node
 import os
 
 def generate_launch_description():
@@ -67,8 +68,18 @@ def generate_launch_description():
         launch_arguments={'use_sim_time': 'true'}.items()
     )
 
-    rviz_exec = ExecuteProcess(
-        cmd=['ros2', 'launch', 'turtlebot3_bringup', 'rviz2.launch.py']
+    rviz_config_dir = os.path.join(
+        get_package_share_directory('world_simulation'),
+        'rviz',
+        'bug_world.rviz'
+    )
+
+    start_rviz_cmd = Node(
+        package='rviz2',
+        executable='rviz2',
+        name='rviz2',
+        arguments=['-d', rviz_config_dir],
+        output='screen'
     )
 
     # 2. Manipulador de eventos para iniciar o Gazebo e o robô APÓS a criação do SDF
@@ -77,10 +88,10 @@ def generate_launch_description():
             target_action=generate_sdf,
             on_exit=[
                 gzserver_cmd,
-                gzclient_cmd,
+                # gzclient_cmd,
                 spawn_robot,
                 robot_state_publisher_cmd,
-                rviz_exec,
+                start_rviz_cmd,
             ]
         )
     )
