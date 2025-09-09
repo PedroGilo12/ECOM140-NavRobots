@@ -32,10 +32,14 @@ class TangentBug(Node):
         self.tangent_array = []
         self.state = State.MOVING_TO_GOAL
 
-        self.d_min_global = float('inf')   
-        self.boundary_start = None         
-        self.d_followed = 0.0              
-        self.last_position = None
+        self.reach_pointer = []
+        self.d_reach = float('inf')  
+        self.followed_pointer = [] 
+        self.d_followed = float('inf')   
+
+        self.avoidance = False
+
+        self.max_lidar_range = 1.5
 
         self.cmd_vel_publisher = self.create_publisher(TwistStamped, '/cmd_vel', 10)
 
@@ -55,7 +59,7 @@ class TangentBug(Node):
 
         self.goal_marker_publisher = self.create_publisher(
             Marker,
-            '/goal_marker', # Nome do tópico para o marcador
+            '/goal_marker',
             10
         )
 
@@ -68,12 +72,29 @@ class TangentBug(Node):
             Marker, 
             '/obstacle_marker', 
             10)
+        
+        self.d_followed_publisher = self.create_publisher(
+            Marker, 
+            '/d_followed_marker', 
+            10)
+        
+        self.state_publisher = self.create_publisher(
+            String, 
+            '/bug_state', 
+            10)
 
         self.timer = self.create_timer(0.1, self.control_loop)
 
     def update_lidar(self, msg):
+        filtered_ranges = [
+            r if (math.isfinite(r) and r <= self.max_lidar_range) else math.inf
+            for r in msg.ranges
+        ]
+
+        msg.ranges = filtered_ranges
+
         self.laser_data = msg
-        self.tangent_array= self.find_discontinuities(1.5)
+        self.tangent_array = self.find_discontinuities(1.5)
 
     def find_discontinuities(self, threshold=1):
         if self.laser_data is None:
@@ -87,6 +108,16 @@ class TangentBug(Node):
             r2 = ranges[i + 1]
             angle1 = self.laser_data.angle_min + i * self.laser_data.angle_increment
             angle2 = self.laser_data.angle_min + (i + 1) * self.laser_data.angle_increment
+
+            if math.isfinite(r1):
+                x = (r1) * math.cos(angle1)
+                y = (r1) * math.sin(angle1)
+                x_world = self.current_x + (x * math.cos(self.current_yaw) - y * math.sin(self.current_yaw))
+                y_world = self.current_y + (x * math.sin(self.current_yaw) + y * math.cos(self.current_yaw))
+                distance_to_goal = math.hypot(x_world - self.goal_x, y_world - self.goal_y)
+                if (distance_to_goal < self.d_followed) and (self.state == State.MOVING_TO_GOAL):
+                    self.d_followed = distance_to_goal
+                    self.followed_pointer = [x_world,y_world]
 
             if math.isfinite(r1) and not math.isfinite(r2):
                 x = (r1) * math.cos(angle1)
@@ -143,14 +174,68 @@ class TangentBug(Node):
 
     def control_loop(self):
         self.publish_goal_marker()
+
+        if math.isfinite(self.d_followed):
+            self.publish_debug_marker(
+                publisher=self.d_followed_publisher,
+                x_world=self.followed_pointer[0],
+                y_world=self.followed_pointer[1],
+                r=1.0, g=0.0, b=0.0,
+                ns="d_followed",
+                marker_id=3
+            )
+
+        msg = String()
         if self.state == State.MOVING_TO_GOAL:
+            msg.data = "Motion to Goal"
+            self.state_publisher.publish(msg)
             self.move_to_goal()
         elif self.state == State.BONDARY_FOLLOWING:
-            self.bondary_follow()
+            msg.data = "Boundary Following"
+            self.state_publisher.publish(msg)
+            self.boundary_follow()
 
-    def bondary_follow(self):
+    def boundary_follow(self):
         if self.laser_data is None or not self.tangent_array:
             return
+        self.get_logger().info(f"boundary follow")
+
+        avoidance_angle = self.deviate_from_closest_obstacle()
+
+        if not math.isfinite(self.d_reach):
+            self.reach_pointer = self.return_best_discontinuitie()
+            current_goal_x = self.reach_pointer[0]
+            current_goal_y = self.reach_pointer[1]
+
+            self.d_reach = math.hypot(self.goal_x - current_goal_x, self.goal_y - current_goal_y)
+        else:
+            self.reach_pointer = self.return_reach_discontinuitie()
+            current_goal_x = self.reach_pointer[0]
+            current_goal_y = self.reach_pointer[1]
+
+            self.d_reach = math.hypot(self.goal_x - current_goal_x, self.goal_y - current_goal_y)
+
+
+        if self.d_reach <= self.d_followed * 1.1:
+            self.reach_pointer = []
+            self.d_reach = float('inf')  
+            self.followed_pointer = [] 
+            self.d_followed = float('inf')
+            self.state = State.MOVING_TO_GOAL
+            return
+
+        angle_to_goal_world = math.atan2(current_goal_y - self.current_y, current_goal_x - self.current_x)
+        angle_error = angle_to_goal_world - self.current_yaw
+
+        if angle_error > math.pi:
+            angle_error -= 2 * math.pi
+        elif angle_error < -math.pi:
+            angle_error += 2 * math.pi
+                
+        angular_vel = (0.75 * angle_error) + avoidance_angle
+        linear_vel = 0.26
+
+        self.send_velocity_command(linear_vel, angular_vel)
 
     def deviate_from_closest_obstacle(self):
         """
@@ -178,9 +263,11 @@ class TangentBug(Node):
         x_world = self.current_x + (x_local * math.cos(self.current_yaw) - y_local * math.sin(self.current_yaw))
         y_world = self.current_y + (x_local * math.sin(self.current_yaw) + y_local * math.cos(self.current_yaw))
 
-        avoidance_gain = 0.75
+        avoidance_gain = 0.8
         self.get_logger().info(f"Angle obstacle: {angle_obstacle}")
         if min_dist_laser < 0.4:
+            self.avoidance =True
+
             self.publish_debug_marker(
                 publisher=self.obstacle_marker_publisher,
                 x_world=x_world,
@@ -206,11 +293,20 @@ class TangentBug(Node):
         angle_to_goal_world = math.atan2(self.goal_y - self.current_y, self.goal_x - self.current_x)
         angle_error = angle_to_goal_world - self.current_yaw
         
+        dist_to_goal = math.sqrt((self.goal_x - self.current_x)**2 + (self.goal_y - self.current_y)**2)
+
         if self.movement_is_blocked(angle_error):
             avoidance_angle = self.deviate_from_closest_obstacle()
             current_goal = self.return_best_discontinuitie()
             current_goal_x = current_goal[0]
             current_goal_y = current_goal[1]
+
+            distance_to_current_goal = math.hypot(self.goal_x - current_goal_x, self.goal_y - current_goal_y)
+
+            if distance_to_current_goal > dist_to_goal:
+                self.state = State.BONDARY_FOLLOWING
+                return
+
             angle_to_goal_world = math.atan2(current_goal_y - self.current_y, current_goal_x - self.current_x)
         else:
             angle_to_goal_world = math.atan2(self.goal_y - self.current_y, self.goal_x - self.current_x)
@@ -222,8 +318,7 @@ class TangentBug(Node):
         elif angle_error < -math.pi:
             angle_error += 2 * math.pi
                 
-        angular_vel = (0.5 * angle_error) + avoidance_angle
-        dist_to_goal = math.sqrt((self.goal_x - self.current_x)**2 + (self.goal_y - self.current_y)**2)
+        angular_vel = (0.75 * angle_error) + avoidance_angle
         linear_vel = 0.26
 
         if dist_to_goal < 0.2:
@@ -270,6 +365,68 @@ class TangentBug(Node):
         )
 
         return best_tangent
+    
+    def normalize_angle(self, angle):
+        while angle > math.pi:
+            angle -= 2 * math.pi
+        while angle < -math.pi:
+            angle += 2 * math.pi
+        return angle
+
+    def return_reach_discontinuitie(self):
+        """
+        Encontra a descontinuidade (tangente) mais próxima do 'reach_pointer'
+        que também esteja NA FRENTE do robô.
+        """
+        if self.laser_data is None or not self.tangent_array:
+            self.get_logger().warn("Tentando encontrar descontinuidade sem dados do Lidar ou tangentes.")
+            return None
+        
+        if self.reach_pointer is None:
+            self.get_logger().error("self.reach_pointer não foi definido. Não é possível escolher a melhor descontinuidade.")
+            return None
+
+        valid_tangents = []
+
+        angle_to_reach = math.atan2(
+            self.reach_pointer[1] - self.current_y,
+            self.reach_pointer[0] - self.current_x
+        )
+
+        for tangent in self.tangent_array:
+            x_local, y_local = tangent
+
+            x_world = self.current_x + (x_local * math.cos(self.current_yaw) - y_local * math.sin(self.current_yaw))
+            y_world = self.current_y + (x_local * math.sin(self.current_yaw) + y_local * math.cos(self.current_yaw))
+
+            dist = math.hypot(self.reach_pointer[0] - x_world, self.reach_pointer[1] - y_world)
+            angle_to_tangent = math.atan2(y_world - self.current_y, x_world - self.current_x)
+
+            self.get_logger().info(f"angle_to_reach: {angle_to_reach}, angle_to_tangent: {angle_to_tangent}")
+
+            angle_diff = self.normalize_angle(angle_to_tangent - angle_to_reach)
+
+            if abs(angle_diff) > math.pi / 2:
+                continue
+
+            valid_tangents.append((dist, [x_world, y_world]))
+
+        if valid_tangents:
+            best_tangent = min(valid_tangents, key=lambda x: x[0])[1]
+        else:
+            best_tangent = self.reach_pointer 
+
+        self.publish_debug_marker(
+            publisher=self.tangent_marker_publisher,
+            x_world=best_tangent[0],
+            y_world=best_tangent[1],
+            r=1.0, g=1.0, b=0.0, 
+            ns="best_tangent_point",
+            marker_id=1
+        )
+
+        return best_tangent
+
             
     def movement_is_blocked(self, angle_error):
 
@@ -341,7 +498,7 @@ class TangentBug(Node):
         marker.color.g = float(g)
         marker.color.b = float(b)
         
-        marker.lifetime.sec = 1
+        marker.lifetime.sec = 5
         
         publisher.publish(marker)
 

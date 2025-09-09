@@ -6,6 +6,7 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from ament_index_python.packages import get_package_share_directory
 from launch.actions import AppendEnvironmentVariable
 from launch_ros.actions import Node
+from datetime import datetime
 import os
 
 def generate_launch_description():
@@ -22,8 +23,8 @@ def generate_launch_description():
     )
     
     # Argumentos para a posição inicial do robô
-    x_pose_arg = DeclareLaunchArgument('x_pose', default_value='0.0')
-    y_pose_arg = DeclareLaunchArgument('y_pose', default_value='0.0')
+    x_pose_arg = DeclareLaunchArgument('x_pose', default_value='0')
+    y_pose_arg = DeclareLaunchArgument('y_pose', default_value='0')
 
     # Configurações com base nos argumentos
     image = LaunchConfiguration('image')
@@ -82,16 +83,35 @@ def generate_launch_description():
         output='screen'
     )
 
+    image_path = os.path.join(pkg_share, 'worlds', 'mapa.png')
+    map_base_name = os.path.splitext(os.path.basename(image_path))[0]
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    bag_name = f"{map_base_name}_tangent_bug_{timestamp}"
+
+    rosbag_cmd = ExecuteProcess(
+        cmd=[
+            'ros2', 'bag', 'record',
+            '-o', bag_name,
+            '/cmd_vel',
+            '/odom',
+            '/bug_state',
+            '/scan',
+            '/goal_marker'
+        ],
+        output='screen'
+    )
+
     # 2. Manipulador de eventos para iniciar o Gazebo e o robô APÓS a criação do SDF
     delay_actions_after_sdf = RegisterEventHandler(
         event_handler=OnProcessExit(
             target_action=generate_sdf,
             on_exit=[
                 gzserver_cmd,
-                # gzclient_cmd,
+                gzclient_cmd,
                 spawn_robot,
                 robot_state_publisher_cmd,
                 start_rviz_cmd,
+                rosbag_cmd,
             ]
         )
     )

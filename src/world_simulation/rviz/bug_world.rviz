@@ -260,6 +260,19 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /obstacle_marker
       Value: true
+    - Class: rviz_default_plugins/Marker
+      Enabled: true
+      Name: Marker
+      Namespaces:
+        goal_namespace: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /d_followed_marker
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
