@@ -4,6 +4,7 @@ from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import TwistStamped, Point
 from visualization_msgs.msg import Marker
+from std_msgs.msg import String
 import math
 import argparse
 
@@ -18,7 +19,9 @@ class Bug2Controller(Node):
         # -------------------- Pubs --------------------
         self.cmd_pub = self.create_publisher(TwistStamped, '/cmd_vel', 10)
         self.goal_marker_publisher = self.create_publisher(Marker, '/goal_marker', 10)
-        self.mline_marker_publisher = self.create_publisher(Marker, '/m_line_marker', 10)  # marker da m-line
+        self.mline_marker_publisher = self.create_publisher(Marker, '/tangent_marker', 10)
+        self.state_pub = self.create_publisher(String, '/bug_state', 10)  # novo publisher
+        self.last_state = None  # para não publicar repetido
 
         # -------------------- Goal --------------------
         self.goal_x = goal_x
@@ -46,7 +49,7 @@ class Bug2Controller(Node):
         # -------------------- Parâmetros --------------------
         self.distance_goal_tolerance = 0.2
         self.obstacle_detect_threshold = 0.4
-        self.max_linear_speed = 0.25
+        self.max_linear_speed = 0.2
         self.max_angular_speed = 1.0
         self.kp_ang = 1.5
         self.kp_lin = 0.5
@@ -159,14 +162,14 @@ class Bug2Controller(Node):
         marker.type = Marker.LINE_STRIP
         marker.action = Marker.ADD
 
-        # Linha da posição inicial até o goal
-        marker.points = []
-        marker.points.append(self._make_point(self.start_x, self.start_y))
-        marker.points.append(self._make_point(self.goal_x, self.goal_y))
+        marker.points = [
+            self._make_point(self.start_x, self.start_y),
+            self._make_point(self.goal_x, self.goal_y)
+        ]
 
-        marker.scale.x = 0.05  # espessura da linha
+        marker.scale.x = 0.05
         marker.color.a = 1.0
-        marker.color.r = 1.0  # vermelho
+        marker.color.r = 1.0
         marker.color.g = 0.0
         marker.color.b = 0.0
 
@@ -198,6 +201,7 @@ class Bug2Controller(Node):
         if distance_to_goal < self.distance_goal_tolerance:
             self.get_logger().info("Chegou no goal! ✅")
             self.cmd_pub.publish(TwistStamped())
+            self.publish_state()  # publica estado final
             return
 
         if self.mode == self.MODE_TO_GOAL:
@@ -210,6 +214,7 @@ class Bug2Controller(Node):
         twist_stamped.twist.angular.z = max(min(twist_stamped.twist.angular.z, self.max_angular_speed), -self.max_angular_speed)
 
         self.cmd_pub.publish(twist_stamped)
+        self.publish_state()  # publica estado atual
 
         if self.debug_counter >= self.debug_log_every:
             self.debug_counter = 0
@@ -237,6 +242,11 @@ class Bug2Controller(Node):
         if front_blocked:
             twist_stamped.twist.linear.x = 0.0
             twist_stamped.twist.angular.z = 0.6
+
+        elif front_right_has_wall and front_blocked:
+            twist_stamped.twist.linear.x = 0.0
+            twist_stamped.twist.angular.z = 0.6
+
         elif front_right_has_wall:
             twist_stamped.twist.linear.x = 0.15
             twist_stamped.twist.angular.z = 0.0
@@ -265,6 +275,16 @@ class Bug2Controller(Node):
         den = math.hypot(y2 - y1, x2 - x1)
         dist = num / den if den > 1e-6 else float('inf')
         return dist < threshold
+
+    # --------------------- Publicar estado ---------------------
+    def publish_state(self):
+        mode_str = "TO_GOAL" if self.mode == self.MODE_TO_GOAL else "WALL_FOLLOW"
+        if mode_str != self.last_state:
+            msg = String()
+            msg.data = mode_str
+            self.state_pub.publish(msg)
+            self.get_logger().info(f"Bug state → {mode_str}")
+            self.last_state = mode_str
 
     # --------------------- Debug ---------------------
     def _log_debug_state(self, twist_stamped: TwistStamped, distance_to_goal: float):
