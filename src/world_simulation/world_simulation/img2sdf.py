@@ -24,31 +24,27 @@ def generate_optimized_sdf(image_path, sdf_path):
     for y in range(height):
         for x in range(width):
             # Se o pixel for preto e ainda não foi parte de outra parede
-            if pixels[x, y] < 128 and not visited[x][y]:
-                
-                # --- Encontra a largura máxima do retângulo a partir de (x, y) ---
+            if pixels[x, y] < 128 and not visited[y][x]:
                 rect_width = 1
                 while (x + rect_width < width and 
-                       pixels[x + rect_width, y] < 128 and 
-                       not visited[x + rect_width][y]):
+                      pixels[x + rect_width, y] < 128 and 
+                      not visited[y][x + rect_width]):   # <--- corrigido
                     rect_width += 1
-                
-                # --- Encontra a altura máxima, verificando se a largura se mantém ---
+
                 rect_height = 1
                 end_of_rect = False
                 while y + rect_height < height and not end_of_rect:
-                    # Verifica se a linha inteira abaixo tem a mesma largura e é preta
                     for i in range(rect_width):
-                        if pixels[x + i, y + rect_height] >= 128 or visited[x + i][y + rect_height]:
+                        if (pixels[x + i, y + rect_height] >= 128 or 
+                            visited[y + rect_height][x + i]):   # <--- corrigido
                             end_of_rect = True
                             break
                     if not end_of_rect:
                         rect_height += 1
 
-                # Marca todos os pixels deste retângulo como visitados
                 for i in range(rect_width):
                     for j in range(rect_height):
-                        visited[x + i][y + j] = True
+                        visited[y + j][x + i] = True   # <--- corrigido
 
                 # Calcula as dimensões e a posição do box no mundo
                 size_x = rect_width * RESOLUTION
