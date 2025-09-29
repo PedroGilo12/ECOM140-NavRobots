@@ -3,7 +3,7 @@ from PIL import Image
 
 # Parâmetros
 WALL_HEIGHT = 0.3      # Altura da parede (30 cm)
-RESOLUTION = 0.05      # Tamanho de cada célula/pixel em metros (5 cm)
+RESOLUTION = 0.01      # Tamanho de cada célula/pixel em metros (5 cm)
 WORLD_NAME = "mapa_mundo"
 
 def generate_optimized_sdf(image_path, sdf_path):
