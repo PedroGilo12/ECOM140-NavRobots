@@ -92,6 +92,11 @@ def generate_optimized_sdf(image_path, sdf_path):
     sdf_content = f"""<?xml version="1.0" ?>
 <sdf version="1.7">
   <world name="{WORLD_NAME}">
+
+  <physics type="ode">
+    <max_step_size>0.001</max_step_size>  <!-- Passo da simulação (s) -->
+    <real_time_update_rate>5000</real_time_update_rate>
+  </physics>
     
     <plugin
       filename="gz-sim-physics-system"

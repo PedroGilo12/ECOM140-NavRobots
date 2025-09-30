@@ -31,12 +31,19 @@ class MotionToGoal(Node):
         self.scale_y = self.MAP_HEIGHT_METERS / self.MAP_HEIGHT_PIXELS
 
         self.path = run_rrt(
-            image_path='mapa_rrt2.png',
+            step=15,
+            image_path='mapa_rrt.png',
             robot_size=(40, 40),
             start=(400, 400, 0),
             goal=(10, 10, 0),
-            gui=True
+            gui=True,
+            obstacle_bias=False,
         )
+
+        while True:
+            pass
+
+        self.end_goal = (self.path[-1].x, self.path[-1].y)
 
         self.timer = self.create_timer(0.1, self.control_loop)
         self.goal_timer = self.create_timer(0.1, self.update_goal)
@@ -146,7 +153,7 @@ class MotionToGoal(Node):
             marker_id=0
         )
 
-        x_end, y_end = self.pixel_to_world(self.path[-1].x, self.path[-1].y)
+        x_end, y_end = self.pixel_to_world(self.end_goal[0], self.end_goal[1])
 
         self.publish_debug_marker(
             self.end_goal_marker_pub,

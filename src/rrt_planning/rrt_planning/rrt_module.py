@@ -1,21 +1,20 @@
 import pygame
 import numpy as np
 from PIL import Image, ImageDraw
-from scipy.ndimage import binary_dilation, rotate
+from scipy.ndimage import binary_dilation, rotate, distance_transform_edt
 import time
 from PIL import ImageOps
 import math
 import random
 from typing import Callable, List, Optional, Tuple
+import os
 
-def to_rgb_array(matriz):
-    """Converte matriz 0/1 em array RGB"""
+def toRGBArray(matriz):
     imagem = (1 - matriz) * 255
     rgb_array = np.stack([imagem] * 3, axis=-1)
     return rgb_array
 
-def to_rgb_array_colored(matriz, cor=(255, 0, 0)):
-    """Converte uma matriz 0/1 em um array RGB com uma cor específica e fundo para transparência."""
+def toRGBArrayColored(matriz, cor=(255, 0, 0)):
     fundo_transparente = (255, 0, 255) 
     altura, largura = matriz.shape
     
@@ -25,46 +24,55 @@ def to_rgb_array_colored(matriz, cor=(255, 0, 0)):
 
 class Map:
     def __init__(self, image: str, width=400, height=400):
+
+        # Dimensões do mapa
         self.width = width
         self.height = height
+
+        # Informações da imagem
         img = Image.open(image).convert("L").resize((width, height))
-        self.matrix = (np.array(img) < 128).astype(np.uint8)
-        rgb_array = to_rgb_array(self.matrix)
+        self.matriz = (np.array(img) < 128).astype(np.uint8)
+        rgb_array = toRGBArray(self.matriz)
+
+        # Superfice que será renderizada usando PyGame
         self.original_surface = pygame.surfarray.make_surface(rgb_array.transpose((1, 0, 2)))
         self.surface = self.original_surface
+
+        # Espaço de configuração para diferentes estados do robô
         self.confSpace = []
         self.angleStep = 15
         self.last_index = 0
 
-    def ProcessMask(self, mask, angleStep):
-        """Calcula o espaço de configuração para diferentes ângulos do mask"""
+    def processMask(self, mask, angleStep):
         self.confSpace.clear()
-        angles = range(0, 180, angleStep)
+        angles = range(0, 360, angleStep)
         self.angleStep = angleStep
         for ang in angles:
             maskRot = rotate(mask, ang, reshape=True, order=0)
             maskRot = (maskRot > 0.5).astype(np.uint8)
-            conf = binary_dilation(self.matrix, structure=maskRot)
+            conf = binary_dilation(self.matriz, structure=maskRot)
+            img = Image.fromarray((conf * 255).astype(np.uint8))
+            img.save(os.path.join("", f"conf_{ang:03d}.png"))
             self.confSpace.append(conf.astype(np.uint8))
     
-    def getMatrix(self, angleRad=0):
-        if self.confSpace:
+    def getMatrix(self, angleRad=0, conf = True):
+        if self.confSpace and conf:
             angleDeg = np.degrees(angleRad) % 180 
             index = int(angleDeg //  self.angleStep)
             index = index % len(self.confSpace)
             self.last_index = index
             return self.confSpace[index]
         else:
-            return self.matrix
+            return self.matriz
         
     def getSurfaceWithoutAngle(self):
         if self.confSpace:
             conf = self.confSpace[self.last_index]
 
-            rgb_array = to_rgb_array(conf)
+            rgb_array = toRGBArray(conf)
             self.surface = pygame.surfarray.make_surface(rgb_array.transpose((1, 0, 2)))
         else:
-            rgb_array = to_rgb_array(self.matrix)
+            rgb_array = toRGBArray(self.matriz)
             self.surface = pygame.surfarray.make_surface(rgb_array.transpose((1, 0, 2)))
         return self.surface
 
@@ -75,10 +83,10 @@ class Map:
             index = index % len(self.confSpace)
             conf = self.confSpace[index]
 
-            rgb_array = to_rgb_array(conf)
+            rgb_array = toRGBArray(conf)
             self.surface = pygame.surfarray.make_surface(rgb_array.transpose((1, 0, 2)))
         else:
-            rgb_array = to_rgb_array(self.matrix)
+            rgb_array = toRGBArray(self.matriz)
             self.surface = pygame.surfarray.make_surface(rgb_array.transpose((1, 0, 2)))
         return self.surface
 
@@ -94,7 +102,7 @@ class Robot:
 
     def updateSurface(self, theta):
         rotada = rotate(self.matriz_original, np.degrees(theta), reshape=True, order=0)
-        self.surface = pygame.surfarray.make_surface(to_rgb_array_colored(rotada, cor=(255, 0, 0)))
+        self.surface = pygame.surfarray.make_surface(toRGBArrayColored(rotada, cor=(255, 0, 0)))
         self.surface.set_colorkey((255, 0, 255))
 
     def getSurface(self):
@@ -142,7 +150,7 @@ class Pose:
         pygame.draw.circle(surface, self.color, (int(self.x * scale_x), int(self.y * scale_y)), self.radius)
 
 class RRT:
-    def __init__(self, step = 15, initial_pose = Pose(10, 10), goal_pose = Pose(750, 750, color=(0, 255, 0)), map: Map = None):
+    def __init__(self, step = 15, initial_pose = Pose(10, 10), goal_pose = Pose(750, 750, color=(0, 255, 0)), map: Map = None, obstacle_bias = False, obstacle_bias_param = [10,5,30]):
         self.initial_pose = initial_pose
         self.goal_pose = goal_pose
         self.start_tree:list[Pose] = [initial_pose]
@@ -157,6 +165,19 @@ class RRT:
         self.complete = False
         self.path = []
         self.alternate = True
+        self.obstacle_bias = obstacle_bias
+        self.obstacle_bias_param = obstacle_bias_param
+
+        if self.obstacle_bias:
+            dist = distance_transform_edt(1 - self.map.getMatrix(conf=False))
+
+            self.weights = np.exp(-((dist - self.obstacle_bias_param[0]) ** 2) / (2 * self.obstacle_bias_param[1]**2))
+
+            self.weights[self.map == 1] = 0  
+
+            self.weights_flat = self.weights.flatten()
+            self.weights_flat /= self.weights_flat.sum()
+
     
     def add_node(self, new_pose: Pose, parent: Pose, tree: list):
         new_pose.parent = parent
@@ -328,6 +349,11 @@ class RRT:
         choice = random.randint(0,100)
         if choice <= self.goal_bias_threshold:
             new_pose = random.choice(tree_to) 
+        elif choice <= self.obstacle_bias_param[2] and self.obstacle_bias == True:
+            indice = np.random.choice(len(self.weights_flat), p=self.weights_flat)
+            y, x = np.unravel_index(indice, self.weights.shape)
+            new_theta = random.uniform(0, 2 * math.pi)
+            new_pose = Pose(int(x), int(y), new_theta)
 
         if choice <= self.leaf_bias_threshold:
             nearest = min(self.get_leaves(tree_from), key=lambda pose: math.hypot(new_pose.x - pose.x, new_pose.y - pose.y))
@@ -364,6 +390,8 @@ def run_rrt(
     gui: bool = False,
     progress_callback: Optional[Callable[[List[Pose], List[Pose], Optional[Tuple[Pose, Pose]]], None]] = None,
     timeout: Optional[float] = None,
+    obstacle_bias = False,
+    obstacle_bias_params = [10,5,50],
 ) -> Optional[List[Pose]]:
     """Executa RRT e retorna a lista de Pose do caminho encontrado (ou None)."""
     if gui:
@@ -373,12 +401,12 @@ def run_rrt(
     MAP_HEIGHT = 800
     m = Map(image_path, width=MAP_WIDTH, height=MAP_HEIGHT)
     robot = Robot(width=robot_size[0], height=robot_size[1])
-    m.ProcessMask(robot.getMatrix(rotated=True), angleStep)
+    m.processMask(robot.getMatrix(rotated=True), angleStep)
 
     start_pose = Pose(start[0], start[1], start[2])
     goal_pose = Pose(goal[0], goal[1], goal[2], color=(0,255,0))
 
-    rrt = RRT(step=step, initial_pose=start_pose, goal_pose=goal_pose, map=m)
+    rrt = RRT(step=step, initial_pose=start_pose, goal_pose=goal_pose, map=m, obstacle_bias=obstacle_bias, obstacle_bias_param=obstacle_bias_params)
 
     start_time = time.time()
     iterations = 0
