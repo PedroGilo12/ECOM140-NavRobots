@@ -51,8 +51,6 @@ class Map:
             maskRot = rotate(mask, ang, reshape=True, order=0)
             maskRot = (maskRot > 0.5).astype(np.uint8)
             conf = binary_dilation(self.matriz, structure=maskRot)
-            img = Image.fromarray((conf * 255).astype(np.uint8))
-            img.save(os.path.join("", f"conf_{ang:03d}.png"))
             self.confSpace.append(conf.astype(np.uint8))
     
     def getMatrix(self, angleRad=0, conf = True):
@@ -421,11 +419,21 @@ def run_rrt(
         clock = None
         running = True
 
+    waiting = True
+
     while running:
         if gui:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
+
+        while waiting:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+                if event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_SPACE:
+                        waiting = False
         rrt.tick()
         iterations += 1
 

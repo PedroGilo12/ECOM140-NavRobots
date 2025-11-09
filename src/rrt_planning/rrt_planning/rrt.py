@@ -23,7 +23,7 @@ class MotionToGoal(Node):
         self.position = None
         self.yaw = 0.0
 
-        self.MAP_WIDTH_PIXELS = 800   # ajuste conforme seu mapa
+        self.MAP_WIDTH_PIXELS = 800 
         self.MAP_HEIGHT_PIXELS = 800
         self.MAP_WIDTH_METERS = 8
         self.MAP_HEIGHT_METERS = 8
@@ -32,16 +32,13 @@ class MotionToGoal(Node):
 
         self.path = run_rrt(
             step=15,
-            image_path='mapa_rrt.png',
+            image_path='mapa_rrt2.png',
             robot_size=(40, 40),
             start=(400, 400, 0),
             goal=(10, 10, 0),
             gui=True,
             obstacle_bias=False,
         )
-
-        while True:
-            pass
 
         self.end_goal = (self.path[-1].x, self.path[-1].y)
 
